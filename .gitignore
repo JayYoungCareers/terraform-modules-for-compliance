@@ -1,0 +1,10 @@
+# Terraform local state and working directories — never commit these,
+# they can contain resource attribute values and provider secrets.
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+tfplan
+crash.log
+crash.*.log
