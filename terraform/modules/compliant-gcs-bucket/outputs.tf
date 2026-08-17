@@ -32,8 +32,11 @@ output "kms_key_id" {
 output "compliance_attestation" {
   description = "Structured compliance evidence for this module's instance, consumed by downstream labs as an audit artifact."
   value = {
-    subject   = google_storage_bucket.bucket.name
-    generated = timestamp()
+    # The capture timestamp deliberately lives in the evidence pipeline
+    # (recorded when `terraform output -json` is captured), not here —
+    # a timestamp() call in an output dirties every subsequent plan with
+    # a value-only diff and is never stable evidence.
+    subject = google_storage_bucket.bucket.name
 
     controls = {
       "SC-12" = {
