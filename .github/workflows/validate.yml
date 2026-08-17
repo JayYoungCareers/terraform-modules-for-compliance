@@ -1,0 +1,88 @@
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: this workflow only reads the repo.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  terraform:
+    name: fmt / validate / tflint / checkov
+    runs-on: ubuntu-latest
+    steps:
+      # Actions pinned to full commit SHAs (supply-chain hardening).
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: "1.9.8"
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive terraform/
+
+      - name: terraform validate (module + all consumers)
+        run: |
+          for dir in \
+            terraform/modules/compliant-gcs-bucket \
+            terraform/consumers/dev \
+            terraform/consumers/prod \
+            terraform/consumers/negative-test/dev
+          do
+            echo "::group::validate $dir"
+            (cd "$dir" && terraform init -backend=false -input=false > /dev/null && terraform validate)
+            echo "::endgroup::"
+          done
+
+      - name: tflint
+        run: |
+          curl -sSL -o /tmp/tflint.zip \
+            https://github.com/terraform-linters/tflint/releases/download/v0.59.1/tflint_linux_amd64.zip
+          unzip -o -q /tmp/tflint.zip -d /tmp
+          /tmp/tflint --chdir terraform/modules/compliant-gcs-bucket
+
+      - name: checkov (policy scan with documented skips)
+        run: |
+          pipx install checkov==3.3.11
+          checkov --config-file .checkov.yaml
+
+  # The compliance floor must be provably un-bypassable. This job attempts a
+  # forbidden configuration (environment = "prod" with retention_days = 30)
+  # and PASSES ONLY IF terraform rejects it at plan time — an automated
+  # negative control test, run on every change to the module.
+  negative-test:
+    name: "negative test: prod retention < 365 must be rejected"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+
+      - name: plan must fail with the retention validation error
+        working-directory: terraform/consumers/negative-test/dev
+        run: |
+          terraform init -backend=false -input=false > /dev/null
+          set +e
+          plan_output=$(terraform plan -input=false -no-color 2>&1)
+          plan_status=$?
+          set -e
+          echo "$plan_output"
+          if [ "$plan_status" -eq 0 ]; then
+            echo "::error::CONTROL FAILURE: the non-compliant plan was accepted."
+            exit 1
+          fi
+          if ! echo "$plan_output" | grep -q "retention_days must be >= 365"; then
+            echo "::error::Plan failed, but not with the expected validation error."
+            exit 1
+          fi
+          echo "Negative test passed: misconfiguration rejected at plan time, before any resource was created."

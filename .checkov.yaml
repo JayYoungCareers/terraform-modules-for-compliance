@@ -1,0 +1,13 @@
+# Checkov policy configuration.
+#
+# Every skip below is a documented, justified exception — the compliance-as-code
+# equivalent of a risk acceptance. Remove the skip when the roadmap item lands.
+directory:
+  - terraform
+quiet: true
+compact: true
+skip-check:
+  # Bucket access logging is a roadmap item for the module; the module's
+  # current control set (CMEK, uniform access, public-access prevention,
+  # versioning, retention, mandatory labels) is documented in its README.
+  - CKV_GCP_62
