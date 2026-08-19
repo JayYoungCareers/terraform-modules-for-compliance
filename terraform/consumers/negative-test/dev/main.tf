@@ -12,7 +12,7 @@ provider "google" {
 }
 
 module "data_bucket" {
-  source = "../../modules/compliant-gcs-bucket"
+  source = "../../../modules/compliant-gcs-bucket"
 
   gcp_project        = "gcp-labs-418118"
   project_label      = "cgep-lab-2"
